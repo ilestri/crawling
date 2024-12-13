@@ -26,7 +26,7 @@ options.add_argument('--ignore-ssl-errors')
 
 # 웹드라이버 설정 및 페이지 접근
 driver = webdriver.Chrome(service=service, options=options)
-wait = WebDriverWait(driver, 10)  # 15초 대기
+wait = WebDriverWait(driver, 3)  # 10초 대기
 
 
 # 폴더 생성 함수
@@ -62,7 +62,8 @@ folder_name = f"{input_name}_{current_time}"
 try:
   # 구글 이미지 검색 페이지로 이동
   driver.get(f'https://www.google.com/search?tbm=isch&q={input_name}')
-  wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, 'img.YQ4gaf')))
+  wait.until(
+    EC.presence_of_all_elements_located((By.CSS_SELECTOR, 'img.YQ4gaf')))
 
   # 스크롤 다운을 통해 이미지 로드
   scroll_pause_time = 2
@@ -94,153 +95,47 @@ try:
   wb_name = f"{input_name}_{current_time}.xlsx"
   workbook = openpyxl.Workbook()
   sheet = workbook.active
-  sheet.append(["이미지 이름", "Original URL", "이미지 URL"])
+  sheet.append(["이미지 이름", "이미지 URL"])
 
-  original_urls = set()  # 중복을 체크하기 위한 세트
-  idx = 0
   image_data = []
   total_images = len(imgs)
   max_images = 100  # 다운로드할 최대 이미지 수 설정 (필요시 조정)
 
-  while idx < total_images and idx < max_images:
+  for idx in range(min(total_images, max_images)):
     try:
-      imgs = driver.find_elements(By.CSS_SELECTOR, 'img.YQ4gaf')
-      if idx >= len(imgs):
-        print(f"총 {idx}개의 이미지를 처리했습니다.")
-        break
       img = imgs[idx]
       img_url = img.get_attribute('src')
 
-      # 이미지 클릭
-      try:
-        driver.execute_script("arguments[0].click();", img)
-        print(f"이미지 {idx + 1} 클릭 시도")
-      except ElementClickInterceptedException:
-        print(f"이미지 {idx + 1} 클릭 실패 (ElementClickInterceptedException)")
-        idx += 1
-        continue
-
-      # 큰 이미지가 로드될 때까지 대기
-      try:
-        large_img = wait.until(
-          EC.presence_of_element_located((By.CSS_SELECTOR, 'img.sFlh5c')))
-      except TimeoutException:
-        print(f"이미지 {idx + 1}의 큰 이미지를 찾을 수 없습니다.")
-        image_data.append([f"{idx + 1}_Unknown.jpg", None, "URL을 찾을 수 없음"])
-        idx += 1
-        continue
-
-      # 큰 이미지 URL 추출
-      large_img_url = large_img.get_attribute('src')
-      if not large_img_url or 'http' not in large_img_url:
-        print(f"이미지 {idx + 1}의 src가 유효하지 않음.")
-        image_data.append([f"{idx + 1}_Unknown.jpg", None, "URL을 찾을 수 없음"])
-        idx += 1
-        continue
-
-      # 원본 URL 추출
-      try:
-        # "Visit" 버튼이 있는지 확인
-        visit_button = wait.until(EC.element_to_be_clickable(
-            (By.XPATH, '//a[contains(text(),"Visit")]')))
-        original_url = visit_button.get_attribute('href')
-      except TimeoutException:
-        original_url = "원본 URL을 찾을 수 없음"
-
-      # 제목 추출 (가능한 경우)
-      try:
-        title_elem = driver.find_element(By.CSS_SELECTOR, 'div.indIKd')
-        title = sanitize_filename(title_elem.text.strip())
-        if not title:
-          title = "Unknown"
-      except NoSuchElementException:
-        title = "Unknown"
-
-      file_name = f"{idx + 1}_{title}.jpg"
+      # 파일명 생성 (인덱스를 기반으로 고유한 이름 부여)
+      file_name = f"{idx + 1}.jpg"
       file_path = os.path.join(folder_name, file_name)
 
-      # 중복된 원본 URL 체크
-      if original_url in original_urls:
-        print(f"중복 URL 확인 : {original_url} / 이미지 이름 : {title}")
-        image_data.append([file_name, original_url, "중복으로 인해 저장되지 않음"])
-        idx += 1
-        # 모달 닫기
-        try:
-          close_button = driver.find_element(By.CSS_SELECTOR,
-                                             'span.VfPpkd-Bz112c-LgbsSe.yHy1rc.eT1oJc')
-          close_button.click()
-        except NoSuchElementException:
-          driver.execute_script(
-            "window.dispatchEvent(new KeyboardEvent('keydown', {'key':'Escape'}));")
-        time.sleep(1)
-        continue
-
-      original_urls.add(original_url)  # 새로운 URL을 세트에 추가
-
-      # 이미지 저장 로직 (중복되지 않은 경우에만 실행)
-      try:
-        if large_img_url.startswith('data:image'):
-          base64_data = large_img_url.split(",")[1]
-          save_base64_image(base64_data, file_path)
+      # 이미지 저장 로직
+      if img_url.startswith('data:image'):
+        base64_data = img_url.split(",")[1]
+        save_base64_image(base64_data, file_path)
+      else:
+        response = requests.get(img_url, stream=True, timeout=10)
+        if response.status_code == 200:
+          with open(file_path, 'wb') as file:
+            for chunk in response.iter_content(1024):
+              file.write(chunk)
         else:
-          response = requests.get(large_img_url, stream=True, timeout=10)
-          if response.status_code == 200:
-            with open(file_path, 'wb') as file:
-              for chunk in response.iter_content(1024):
-                file.write(chunk)
-          else:
-            print(
-              f"Failed to download image {idx + 1}: HTTP {response.status_code}")
-            image_data.append([file_name, original_url, "이미지 다운로드 실패"])
-            idx += 1
-            # 모달 닫기
-            try:
-              close_button = driver.find_element(By.CSS_SELECTOR,
-                                                 'span.VfPpkd-Bz112c-LgbsSe.yHy1rc.eT1oJc')
-              close_button.click()
-            except NoSuchElementException:
-              driver.execute_script(
-                "window.dispatchEvent(new KeyboardEvent('keydown', {'key':'Escape'}));")
-            time.sleep(1)
-            continue
+          print(f"이미지 {idx + 1} 다운로드 실패: HTTP {response.status_code}")
+          image_data.append([file_name, "다운로드 실패"])
+          continue
 
-        image_data.append([file_name, original_url, large_img_url])
-        print(f"이미지 {idx + 1} 저장 완료: {file_name}")
-
-      except Exception as e:
-        print(f"Error saving Image {idx + 1}: {str(e)}")
-        image_data.append([file_name, original_url, "저장 중 오류 발생"])
-
-      # 모달 닫기
-      try:
-        close_button = driver.find_element(By.CSS_SELECTOR,
-                                           'span.VfPpkd-Bz112c-LgbsSe.yHy1rc.eT1oJc')
-        driver.execute_script("arguments[0].click();", close_button)
-      except NoSuchElementException:
-        # ESC 키 보내기
-        driver.execute_script(
-          "window.dispatchEvent(new KeyboardEvent('keydown', {'key':'Escape'}));")
-      time.sleep(1)  # 잠시 대기
-      idx += 1
+      image_data.append([file_name, img_url])
+      print(f"이미지 {idx + 1} 저장 완료: {file_name}")
 
     except Exception as e:
-      print(f"Error for Image {idx + 1}: {str(e)}")
-      image_data.append([f"{idx + 1}_Unknown.jpg", None, "오류로 인해 저장되지 않음"])
-      idx += 1
-      # 모달 닫기 시도
-      try:
-        close_button = driver.find_element(By.CSS_SELECTOR,
-                                           'span.VfPpkd-Bz112c-LgbsSe.yHy1rc.eT1oJc')
-        driver.execute_script("arguments[0].click();", close_button)
-      except NoSuchElementException:
-        driver.execute_script(
-          "window.dispatchEvent(new KeyboardEvent('keydown', {'key':'Escape'}));")
-      time.sleep(1)
+      print(f"이미지 {idx + 1} 저장 중 오류 발생: {str(e)}")
+      image_data.append([f"{idx + 1}_Unknown.jpg", "오류로 인해 저장되지 않음"])
       continue
 
-  # 엑셀 데이터 한 번에 저장 (이미지 이름, 원본 URL, 이미지 URL 순)
+  # 엑셀 데이터 저장 (이미지 이름, 이미지 URL 순)
   for data in image_data:
-    sheet.append([data[0], data[1], data[2]])
+    sheet.append([data[0], data[1]])
   workbook.save(wb_name)
 
   print(f'{input_name}의 이미지 및 URL 정보 수집 및 저장 작업 완료')
