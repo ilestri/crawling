@@ -26,7 +26,7 @@ options.add_argument('--ignore-ssl-errors')
 
 # 웹드라이버 설정 및 페이지 접근
 driver = webdriver.Chrome(service=service, options=options)
-wait = WebDriverWait(driver, 3)  # 10초 대기
+wait = WebDriverWait(driver, 3)  # 3초 대기
 
 
 # 폴더 생성 함수
