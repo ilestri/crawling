@@ -17,7 +17,7 @@ git clone https://github.com/ilestri/crawling.git
    pip install webdriver-manager  
    pip install openpyxl  
    pip install requests  
-
+영어좋아요
 asdf
 4. 특징  
    자동 이미지 스크레이핑: 사용자가 입력한 키워드를 기반으로 네이버에서 이미지를 수집합니다.  
